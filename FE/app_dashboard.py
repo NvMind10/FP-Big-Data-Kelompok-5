@@ -13,8 +13,8 @@ load_dotenv()
 # ==========================================
 # 1. KONFIGURASI TEMA VISUAL (Royal Blue & Peach)
 # ==========================================
-HEX_ROYAL_BLUE = "#1E3A8A"
-HEX_PEACH      = "#FFDBB5"
+HEX_ROYAL_BLUE = "#237716"
+HEX_PEACH      = "#C82626"
 HEX_LIGHT_BG   = "#292626"
 HEX_DARK_BG    = "#AB9E9E"
 
@@ -58,6 +58,16 @@ def load_data(limit: int = 500) -> pd.DataFrame:
         return pd.DataFrame(columns=["sender", "text", "prediction", "timestamp", "group"])
 
     df = pd.DataFrame(docs)
+    
+    if "status_ai" in df.columns:
+        df.rename(columns={"status_ai": "prediction"}, inplace=True)
+    if "message_text" in df.columns:
+        df.rename(columns={"message_text": "text"}, inplace=True)
+
+    if "prediction" in df.columns:
+        df["prediction"] = df["prediction"].apply(
+            lambda x: "🚨 SCAM" if "scam" in str(x).lower() else "✅ AMAN"
+        )
 
     # Normalisasi kolom wajib
     for col_name, default in [
@@ -124,7 +134,7 @@ st.write("")
 # ==========================================
 # 6. GRAFIK VISUALISASI
 # ==========================================
-col_left, col_right = st.columns(2)
+col_left, col_right = st.columns([1, 1])
 
 with col_left:
     st.write("### 📊 Rasio Distribusi Kategori")
@@ -144,7 +154,12 @@ with col_left:
             wedgeprops={"edgecolor": "white", "linewidth": 2},
         )
         ax.axis("equal")
-        st.pyplot(fig)
+        fig.text(
+            0.5, 0.02,
+            f"Dari {total_trafik} pesan: {total_scam} scam ({rasio_scam:.1f}%) · {total_aman} aman ({100-rasio_scam:.1f}%)",
+            ha="center", fontsize=9, color="white", style="italic"
+        )
+        st.pyplot(fig, use_container_width=True)
 
 with col_right:
     st.write("### 👤 Akun Penipu Paling Aktif (Top 5)")
@@ -157,12 +172,26 @@ with col_right:
         ax2.set_facecolor(HEX_DARK_BG)
         top_scammers.plot(kind="barh", color=HEX_ROYAL_BLUE, ax=ax2)
         ax2.invert_yaxis()
+        ax2.set_ylabel("")
         ax2.spines["top"].set_visible(False)
         ax2.spines["right"].set_visible(False)
-        ax2.set_xlabel("Jumlah Pesan Terkirim")
-        st.pyplot(fig2)
+        ax2.set_xlabel("Jumlah Pesan Terkirim", color="white")
+        ax2.tick_params(colors="white")
+        ax2.xaxis.label.set_color("white")
+        fig2.text(
+            0.5, -0.11,
+            f"Top scammer aktif dari {total_scam} pesan scam terdeteksi",
+            ha="center", fontsize=9, color="white", style="italic"
+        )
+        st.pyplot(fig2, use_container_width=True)
     else:
-        st.info("Belum ada data serangan scam yang masuk.")
+        fig2, ax2 = plt.subplots(figsize=(6, 5))
+        fig2.patch.set_facecolor(HEX_DARK_BG)
+        ax2.set_facecolor(HEX_DARK_BG)
+        ax2.axis("off")
+        fig2.text(0.5, 0.5, "Belum ada data serangan scam yang masuk.",
+                  ha="center", va="center", color="white", fontsize=10)
+        st.pyplot(fig2, use_container_width=True)
 
 st.write("---")
 
