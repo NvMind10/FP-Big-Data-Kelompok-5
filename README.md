@@ -37,6 +37,80 @@ Pada sisi antarmuka, hasil deteksi ditampilkan melalui dua mode: dashboard anali
 
 ---
 
+## Diagram Alur Kerja (System Workflow)
+
+```plaintext
++-------------------------------------------------------------+
+|                      SUMBER DATA                            |
+|             Grup Telegram (Pesan & Gambar)                  |
++-----------------------------+-------------------------------+
+                              |
+                 +------------v------------+
+                 |    Listener Telethon    |
+                 | (Modul Tesseract OCR)   |
+                 +------------+------------+
+                              |
++-----------------------------v-------------------------------+
+|                 INGESTION - Apache Kafka                    |
+|          Topic: scamshield_stream (JSON Data)               |
++-----------------------------+-------------------------------+
+                              |
+                 +------------v------------+
+                 |     Spark Streaming     |
+                 | (IndoBERT Inference)    |
+                 +------------+------------+
+                              |
++-----------------------------v-------------------------------+
+|                 STORAGE - MongoDB Atlas                     |
+|      (Collection: telegram_logs - Structured Data)          |
++-----------------------------+-------------------------------+
+                              |
++-----------------------------v-------------------------------+
+|                    SERVING / FRONTEND                       |
+|      Streamlit Dashboard (Web) | Rich CLI (Monitor)         |
++-------------------------------------------------------------+
+```
+Diagram ini menunjukkan bagaimana data "mengalir" dari grup Telegram hingga menjadi informasi yang bisa dibaca di dashboard.
+
+---
+
+## Aristektur Lakehouse (Pola Medallion)
+
+Diagram ini menjelaskan bagaimana data berevolusi dari mentah menjadi informasi berharga (Analitik). Meskipun kalian menggunakan MongoDB, konsepnya tetap mengikuti Medallion Architecture (Bronze -> Silver -> Gold).
+
+```plaintext
++-------------------------------------------------------------+
+|                    BRONZE (Raw Layer)                       |
+|      Kafka Topic: Raw Messages (Pesan Mentah Telegram)      |
++-----------------------------+-------------------------------+
+                              |
+                  Spark (IndoBERT Inference)
+                              |
++-----------------------------v-------------------------------+
+|                    SILVER (Clean Layer)                     |
+|    Teks Bersih + Status Scam/Aman (Hasil Klasifikasi)       |
++-----------------------------+-------------------------------+
+                              |
+                     Insert ke Database
+                              |
++-----------------------------v-------------------------------+
+|                    GOLD (Structured Layer)                  |
+|     MongoDB Atlas: Analytical Ready / Historical Data       |
++-----------------------------+-------------------------------+
+                              |
+                          Serving
++-------------------------------------------------------------+
+|                    SERVING / FRONTEND                       |
+|      Streamlit Dashboard (Web) | Rich CLI (Monitor)         |
++-------------------------------------------------------------+
+
+Metrik Performa : Akurasi IndoBERT, Precision, Recall
+Orkestrasi      : Kafka Consumer (Spark Pipeline)
+```
+
+---
+
+
 ## 📁 Struktur Folder (Monorepo)
 
 ```
