@@ -14,9 +14,9 @@ load_dotenv()
 # 1. KONFIGURASI TEMA VISUAL (Royal Blue & Peach)
 # ==========================================
 HEX_ROYAL_BLUE = "#1E3A8A"
-HEX_PEACH = "#FFDBB5"
-HEX_LIGHT_BG = "#292626"
-HEX_DARK_BG = "#AB9E9E"
+HEX_PEACH      = "#FFDBB5"
+HEX_LIGHT_BG   = "#292626"
+HEX_DARK_BG    = "#AB9E9E"
 
 st.set_page_config(page_title="ScamShield V2 Analytics", layout="wide", page_icon="🛡️")
 
@@ -40,18 +40,62 @@ st.markdown(f"""
 # ==========================================
 # 2. KONEKSI MONGODB
 # ==========================================
-# Ganti nama file part-xxx dari Huda menjadi data_huda.csv di foldermu
-CSV_FILENAME = "data_huda.csv"
+MONGO_URI        = os.getenv("MONGO_URI")
+MONGO_DB         = os.getenv("MONGO_DB", "scamshield")
+MONGO_COLLECTION = os.getenv("MONGO_COLLECTION", "telegram_logs")
 
-if os.path.exists(CSV_FILENAME):
-    # Membaca data asli huda tanpa header, lalu diberi nama kolom manual
-    df_current = pd.read_csv(CSV_FILENAME, names=["sender", "text", "prediction"])
+@st.cache_resource
+def get_client():
+    return MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+
+def load_data(limit: int = 500) -> pd.DataFrame:
+    """Ambil data terbaru dari MongoDB, kembalikan sebagai DataFrame."""
+    client = get_client()
+    col    = client[MONGO_DB][MONGO_COLLECTION]
+    docs   = list(col.find().sort("_id", -1).limit(limit))
+
+    if not docs:
+        return pd.DataFrame(columns=["sender", "text", "prediction", "timestamp", "group"])
+
+    df = pd.DataFrame(docs)
     
-    # Menambahkan kolom penanda waktu dan grup default agar grafik tidak error
-    df_current["timestamp"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    df_current["group"] = "Telegram Public Group"
-else:
-    st.error(f"⚠️ File '{CSV_FILENAME}' tidak ditemukan! Harap masukkan file CSV dari Huda ke folder ini dan ubah namanya menjadi '{CSV_FILENAME}'")
+    if "status_ai" in df.columns:
+        df.rename(columns={"status_ai": "prediction"}, inplace=True)
+    if "message_text" in df.columns:
+        df.rename(columns={"message_text": "text"}, inplace=True)
+
+    if "prediction" in df.columns:
+        df["prediction"] = df["prediction"].apply(
+            lambda x: "🚨 SCAM" if "scam" in str(x).lower() else "✅ AMAN"
+        )
+
+    # Normalisasi kolom wajib
+    for col_name, default in [
+        ("sender",     "unknown"),
+        ("text",       ""),
+        ("prediction", "✅ AMAN"),
+        ("group",      "Telegram Public Group"),
+    ]:
+        if col_name not in df.columns:
+            df[col_name] = default
+
+    if "timestamp" not in df.columns:
+        df["timestamp"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    return df[["sender", "text", "prediction", "timestamp", "group"]]
+
+
+# ==========================================
+# 3. VALIDASI KONEKSI
+# ==========================================
+if not MONGO_URI:
+    st.error("❌ **MONGO_URI** tidak ditemukan! Pastikan file `.env` sudah diisi dan diletakkan di folder yang sama.")
+    st.stop()
+
+try:
+    df_current = load_data(limit=500)
+except Exception as e:
+    st.error(f"❌ Gagal terhubung ke MongoDB: `{e}`")
     st.stop()
 
 if df_current.empty:
@@ -94,15 +138,28 @@ col_left, col_right = st.columns([1, 1])
 
 with col_left:
     st.write("### 📊 Rasio Distribusi Kategori")
-    fig, ax = plt.subplots(figsize=(6, 4))
-    fig.patch.set_facecolor(HEX_DARK_BG)
-    ax.set_facecolor(HEX_DARK_BG)
-    
-    # Menggunakan kombinasi warna Royal Blue dan Peach pesanan Anda
-    colors = [HEX_ROYAL_BLUE, HEX_PEACH]
-    ax.pie([total_aman, total_scam], labels=['Aman / Valid', 'Scam Penipuan'], autopct='%1.1f%%', startangle=90, colors=colors, wedgeprops={'edgecolor': 'white', 'linewidth': 2})
-    ax.axis('equal')
-    st.pyplot(fig)
+    if total_trafik == 0:
+        st.info("Belum ada data untuk ditampilkan.")
+    else:
+        fig, ax = plt.subplots(figsize=(6, 4))
+        fig.patch.set_facecolor(HEX_DARK_BG)
+        ax.set_facecolor(HEX_DARK_BG)
+        colors = [HEX_ROYAL_BLUE, HEX_PEACH]
+        ax.pie(
+            [total_aman, total_scam],
+            labels=["Aman / Valid", "Scam Penipuan"],
+            autopct="%1.1f%%",
+            startangle=90,
+            colors=colors,
+            wedgeprops={"edgecolor": "white", "linewidth": 2},
+        )
+        ax.axis("equal")
+        fig.text(
+            0.5, 0.02,
+            f"Dari {total_trafik} pesan: {total_scam} scam ({rasio_scam:.1f}%) · {total_aman} aman ({100-rasio_scam:.1f}%)",
+            ha="center", fontsize=9, color="white", style="italic"
+        )
+        st.pyplot(fig, use_container_width=True)
 
 with col_right:
     st.write("### 👤 Akun Penipu Paling Aktif (Top 5)")
@@ -113,14 +170,20 @@ with col_right:
         fig2, ax2 = plt.subplots(figsize=(6, 4))
         fig2.patch.set_facecolor(HEX_DARK_BG)
         ax2.set_facecolor(HEX_DARK_BG)
-        
-        # Grafik batang horizontal berwarna Royal Blue
-        top_scammers.plot(kind='barh', color=HEX_ROYAL_BLUE, ax=ax2)
-        ax2.invert_yaxis()  
-        ax2.spines['top'].set_visible(False)
-        ax2.spines['right'].set_visible(False)
-        ax2.set_xlabel("Jumlah Pesan Terkirim")
-        st.pyplot(fig2)
+        top_scammers.plot(kind="barh", color=HEX_ROYAL_BLUE, ax=ax2)
+        ax2.invert_yaxis()
+        ax2.set_ylabel("")
+        ax2.spines["top"].set_visible(False)
+        ax2.spines["right"].set_visible(False)
+        ax2.set_xlabel("Jumlah Pesan Terkirim", color="white")
+        ax2.tick_params(colors="white")
+        ax2.xaxis.label.set_color("white")
+        fig2.text(
+            0.5, -0.11,
+            f"Top scammer aktif dari {total_scam} pesan scam terdeteksi",
+            ha="center", fontsize=9, color="white", style="italic"
+        )
+        st.pyplot(fig2, use_container_width=True)
     else:
         fig2, ax2 = plt.subplots(figsize=(6, 5))
         fig2.patch.set_facecolor(HEX_DARK_BG)
